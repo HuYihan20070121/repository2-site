@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>汽车对角线移动 | 从左上角到右下角</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1e3c2c 0%, #0f2b1f 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Segoe UI', 'Poppins', system-ui, -apple-system, sans-serif;
+            padding: 20px;
+        }
+
+        .card {
+            background: rgba(0, 0, 0, 0.55);
+            backdrop-filter: blur(8px);
+            border-radius: 2rem;
+            padding: 1.2rem;
+            box-shadow: 0 25px 45px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 215, 150, 0.3);
+        }
+
+        .canvas-container {
+            border-radius: 1.2rem;
+            overflow: hidden;
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+            background: #1a2a1f;
+            display: inline-block;
+            position: relative;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: auto;
+            cursor: pointer;
+        }
+
+        .info-panel {
+            margin-top: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            color: #f5f0e0;
+            padding: 0.5rem 0.8rem;
+        }
+
+        .status {
+            background: #000000aa;
+            backdrop-filter: blur(8px);
+            padding: 6px 14px;
+            border-radius: 40px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            font-family: 'JetBrains Mono', monospace;
+            border-left: 3px solid #ffaa44;
+        }
+
+        .badge {
+            display: flex;
+            gap: 12px;
+            font-size: 0.8rem;
+            background: #00000088;
+            padding: 5px 14px;
+            border-radius: 30px;
+            align-items: center;
+        }
+
+        .badge span {
+            color: #ffcc77;
+            font-weight: bold;
+        }
+
+        button {
+            background: #2c4a3a;
+            border: none;
+            color: white;
+            padding: 6px 20px;
+            border-radius: 40px;
+            font-weight: 600;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+            transition: 0.2s;
+            font-size: 0.8rem;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            font-family: inherit;
+        }
+
+        button:hover {
+            background: #e68a2e;
+            color: #1e2a1f;
+            transform: scale(0.96);
+            box-shadow: 0 1px 3px black;
+        }
+
+        .credit {
+            font-size: 0.7rem;
+            opacity: 0.7;
+            margin-top: 10px;
+            text-align: center;
+            width: 100%;
+        }
+
+        .loading-tip {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #000000cc;
+            padding: 8px 18px;
+            border-radius: 50px;
+            color: #ffdd99;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 10;
+            backdrop-filter: blur(5px);
+            font-size: 0.85rem;
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body>
+<div>
+    <div class="card">
+        <div class="canvas-container" style="position: relative;">
+            <canvas id="carCanvas" width="900" height="550" style="width:100%; height:auto; background: #1f2a1b;"></canvas>
+            <div id="loadingMsg" class="loading-tip">🚗 加载炫酷汽车中...</div>
+        </div>
+        <div class="info-panel">
+            <div class="status">🚘 对角线移动 · 左上 ➔ 右下</div>
+            <div class="badge">
+                <span>📐 路径: 直线</span> 循环移动
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button id="resetBtn">⟳ 重置位置</button>
+                <button id="pausePlayBtn">⏸️ 暂停</button>
+            </div>
+        </div>
+        <div class="credit">
+            🚙 汽车图片来自网络 | 平滑动画 | 无限循环对角线旅行
+        </div>
+    </div>
+</div>
+
+<script>
+    (function() {
+        // ---------- 配置参数 ----------
+        // 高质量汽车图片 (使用稳定且美观的跑车图)
+        const CAR_IMG_URL = "https://images.pexels.com/photos/3764984/pexels-photo-3764984.jpeg?auto=compress&cs=tinysrgb&w=800&h=500&dpr=2";
+        // 备用图片 (经典肌肉车)
+        const FALLBACK_URL = "https://images.pexels.com/photos/210442/pexels-photo-210442.jpeg?auto=compress&cs=tinysrgb&w=800&h=500";
+        
+        // DOM 元素
+        const canvas = document.getElementById('carCanvas');
+        const ctx = canvas.getContext('2d');
+        const loadingDiv = document.getElementById('loadingMsg');
+        const resetBtn = document.getElementById('resetBtn');
+        const pausePlayBtn = document.getElementById('pausePlayBtn');
+        
+        // 动画状态
+        let img = new Image();
+        let isImageLoaded = false;
+        let animationId = null;
+        let paused = false;
+        
+        // 汽车尺寸 (根据画布比例动态调整，保持视觉效果)
+        let carWidth = 130;
+        let carHeight = 90;
+        
+        // 移动范围 (汽车左上角坐标可移动区域)
+        let startX = 0, startY = 0;
+        let endX = canvas.width - carWidth;
+        let endY = canvas.height - carHeight;
+        
+        // 动画进度 (0 -> 1)
+        let progress = 0;           // 0: 左上角, 1: 右下角终点
+        let speed = 0.0025;         // 每帧增量(帧率约60时，单程≈6.6秒)  但是为了更精准使用基于时间增量
+        
+        // 基于时间的动画控制 (更平滑且不受帧率影响)
+        let lastTimestamp = null;
+        let animStartTime = null;       // 当前周期起始时间
+        const ONE_WAY_DURATION = 5000;  // 单程移动耗时 5 秒 (毫秒)
+        
+        // 汽车真实绘制参数（图片宽高比自适应，保证汽车不变形）
+        let carDrawWidth = carWidth;
+        let carDrawHeight = carHeight;
+        let carImgOriginalWidth = 1, carImgOriginalHeight = 1;  // 临时占位
+        
+        // ---------- 辅助函数 ----------
+        // 根据画布和汽车实际比例调整汽车绘制尺寸 (保持图片比例)
+        function updateCarDrawSize() {
+            if (!isImageLoaded) return;
+            const imgW = img.naturalWidth;
+            const imgH = img.naturalHeight;
+            if (imgW && imgH) {
+                // 目标显示区域大致为画布宽度的 13%~18% 左右，高度自适应
+                const targetBaseWidth = Math.min(canvas.width * 0.14, 160);
+                const ratio = imgW / imgH;
+                let drawW = targetBaseWidth;
+                let drawH = drawW / ratio;
+                // 保证高度不超过画布高度的 20% 并且不小于40px
+                const maxH = canvas.height * 0.2;
+                if (drawH > maxH) {
+                    drawH = maxH;
+                    drawW = drawH * ratio;
+                }
+                carDrawWidth = Math.max(75, Math.min(drawW, canvas.width * 0.25));
+                carDrawHeight = Math.max(50, Math.min(drawH, canvas.height * 0.22));
+                // 重新计算终点边界（因为汽车尺寸变了）
+                endX = canvas.width - carDrawWidth;
+                endY = canvas.height - carDrawHeight;
+                if (endX < 0) endX = 0;
+                if (endY < 0) endY = 0;
+            } else {
+                // 默认值
+                carDrawWidth = 120;
+                carDrawHeight = 80;
+                endX = canvas.width - carDrawWidth;
+                endY = canvas.height - carDrawHeight;
+            }
+        }
+        
+        // 根据进度 (0..1) 计算汽车左上角坐标
+        function getCarPosition(progressVal) {
+            const t = Math.min(Math.max(progressVal, 0), 1);
+            const x = startX + t * (endX - startX);
+            const y = startY + t * (endY - startY);
+            return { x, y };
+        }
+        
+        // 绘制整个场景: 背景 + 路径装饰 + 汽车
+        function drawScene() {
+            if (!isImageLoaded) return;
+            
+            // 1. 绘制动态背景 (公路风格渐变 + 赛道虚线)
+            const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+            grad.addColorStop(0, '#1f3b2c');
+            grad.addColorStop(0.6, '#2a4a35');
+            grad.addColorStop(1, '#1c3526');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制网格/对角线参考线 (淡淡的白色线)
+            ctx.save();
+            ctx.globalAlpha = 0.2;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.strokeStyle = "#fff9c4";
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([8, 8]);
+            ctx.stroke();
+            // 辅助对角线从左上到右下视觉引导
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height);
+            ctx.lineTo(canvas.width, 0);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 0.35;
+            // 绘制起点和终点标记
+            ctx.fillStyle = "#ffd966";
+            ctx.shadowBlur = 0;
+            ctx.beginPath();
+            ctx.arc(startX + carDrawWidth/2, startY + carDrawHeight/2, 8, 0, Math.PI*2);
+            ctx.fillStyle = "#ffaa55cc";
+            ctx.fill();
+            ctx.fillStyle = "#ff8844";
+            ctx.beginPath();
+            ctx.arc(endX + carDrawWidth/2, endY + carDrawHeight/2, 8, 0, Math.PI*2);
+            ctx.fill();
+            ctx.fillStyle = "#ffffffcc";
+            ctx.font = "bold 12px 'Segoe UI'";
+            ctx.shadowBlur = 0;
+            ctx.fillText("🚩 起点", startX + carDrawWidth/2 - 18, startY + carDrawHeight/2 - 10);
+            ctx.fillText("🏁 终点", endX + carDrawWidth/2 - 18, endY + carDrawHeight/2 - 12);
+            ctx.restore();
+            
+            // 绘制动态道路点 (虚线路径)
+            ctx.save();
+            ctx.globalAlpha = 0.5;
+            ctx.beginPath();
+            ctx.setLineDash([12, 16]);
+            ctx.lineWidth = 2.5;
+            ctx.strokeStyle = "#f5e56b";
+            ctx.moveTo(startX + carDrawWidth/2, startY + carDrawHeight/2);
+            ctx.lineTo(endX + carDrawWidth/2, endY + carDrawHeight/2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.restore();
+            
+            // 2. 获取当前汽车位置
+            const { x: carX, y: carY } = getCarPosition(progress);
+            
+            // 3. 绘制汽车 (带轻微阴影增加质感)
+            ctx.save();
+            ctx.shadowColor = "rgba(0,0,0,0.6)";
+            ctx.shadowBlur = 8;
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
+            ctx.drawImage(img, carX, carY, carDrawWidth, carDrawHeight);
+            ctx.restore();
+            
+            // 4. 添加汽车周围光晕 (运动感)
+            ctx.save();
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = 0.3;
+            ctx.beginPath();
+            ctx.rect(carX - 3, carY - 3, carDrawWidth + 6, carDrawHeight + 6);
+            ctx.strokeStyle = "#ffbb66";
+            ctx.lineWidth = 1.8;
+            ctx.stroke();
+            ctx.restore();
+            
+            // 显示移动百分比文字
+            const percent = Math.floor(progress * 100);
+            ctx.font = "bold 14px 'JetBrains Mono', monospace";
+            ctx.fillStyle = "#f5f0d7";
+            ctx.shadowBlur = 0;
+            ctx.fillText(`📍 移动进度: ${percent}%`, canvas.width - 130, 30);
+        }
+        
+        // 基于时间的动画循环
+        function animate(time) {
+            if (!isImageLoaded) {
+                if (animationId) cancelAnimationFrame(animationId);
+                animationId = requestAnimationFrame(animate);
+                return;
+            }
+            if (paused) {
+                // 暂停状态保持绘制最后一帧，继续请求下一帧但不更新时间
+                animationId = requestAnimationFrame(animate);
+                return;
+            }
+            
+            const now = performance.now();
+            if (animStartTime === null) {
+                animStartTime = now;
+                lastTimestamp = now;
+                animationId = requestAnimationFrame(animate);
+                drawScene();
+                return;
+            }
+            
+            // 当前周期已经过去的时间
+            let elapsed = now - animStartTime;
+            // 计算进度 (循环移动: 到达1后重置为0重新开始)
+            let t = (elapsed % ONE_WAY_DURATION) / ONE_WAY_DURATION;
+            progress = t;
+            
+            // 更新位置并重绘
+            drawScene();
+            
+            // 继续动画
+            animationId = requestAnimationFrame(animate);
+        }
+        
+        // 重置动画 (回到起点，进度归零，周期重置)
+        function resetAnimation() {
+            if (!isImageLoaded) return;
+            // 重置起始时间，让进度归零重新开始
+            animStartTime = performance.now();
+            progress = 0;
+            drawScene();
+            // 如果处于暂停状态，重置后自动恢复播放？更好的体验: 如果暂停则自动取消暂停
+            if (paused) {
+                paused = false;
+                pausePlayBtn.textContent = "⏸️ 暂停";
+            }
+        }
+        
+        // 切换暂停/继续
+        function togglePause() {
+            if (!isImageLoaded) return;
+            paused = !paused;
+            pausePlayBtn.textContent = paused ? "▶️ 启动" : "⏸️ 暂停";
+            if (!paused && animStartTime !== null) {
+                // 继续时调整时间基准，避免跳跃: 保持当前进度对应的周期时间偏移
+                // 为了让暂停后继续不丢失进度，我们根据当前progress重新设置animStartTime
+                const now = performance.now();
+                // 根据当前progress计算应当流逝的时间 offset = progress * ONE_WAY_DURATION
+                const desiredElapsed = progress * ONE_WAY_DURATION;
+                animStartTime = now - desiredElapsed;
+            }
+            drawScene(); // 刷新一下
+        }
+        
+        // 图片加载完成后的初始化
+        function onImageReady() {
+            isImageLoaded = true;
+            // 获取图片原始尺寸
+            const imgW = img.naturalWidth;
+            const imgH = img.naturalHeight;
+            if (imgW && imgH) {
+                carImgOriginalWidth = imgW;
+                carImgOriginalHeight = imgH;
+            }
+            // 更新画布尺寸？保持固定，但是重新计算汽车绘制尺寸适应canvas
+            updateCarDrawSize();
+            
+            // 重新计算终点边界 (因为汽车尺寸可能变了)
+            endX = canvas.width - carDrawWidth;
+            endY = canvas.height - carDrawHeight;
+            if (endX < 0) endX = 0;
+            if (endY < 0) endY = 0;
+            
+            // 确保起点终点有效，起点始终(0,0) 终点动态
+            startX = 0;
+            startY = 0;
+            
+            // 重置进度
+            progress = 0;
+            if (loadingDiv) loadingDiv.style.display = 'none';
+            
+            // 绘制初始场景
+            drawScene();
+            
+            // 启动动画
+            if (animationId) cancelAnimationFrame(animationId);
+            animStartTime = performance.now();
+            paused = false;
+            pausePlayBtn.textContent = "⏸️ 暂停";
+            animationId = requestAnimationFrame(animate);
+        }
+        
+        // 图片加载失败时的处理
+        function handleImageError() {
+            console.warn("主图加载失败，使用备用汽车图片");
+            if (loadingDiv) loadingDiv.innerHTML = "🔄 切换备用车图...";
+            img.src = FALLBACK_URL;
+            img.onerror = () => {
+                console.error("备用图片也无法加载，绘制矢量汽车示意图形");
+                if (loadingDiv) loadingDiv.innerHTML = "🎨 绘制示意汽车 (网络延迟)";
+                // 创建一个canvas图形代替真实图片，保证演示功能不中断
+                const fallbackCanvas = document.createElement('canvas');
+                fallbackCanvas.width = 400;
+                fallbackCanvas.height = 300;
+                const fCtx = fallbackCanvas.getContext('2d');
+                // 绘制一辆简约卡通汽车
+                fCtx.fillStyle = "#c44b2e";
+                fCtx.fillRect(50, 120, 300, 100);
+                fCtx.fillStyle = "#2c2c2c";
+                fCtx.fillRect(80, 190, 50, 40);
+                fCtx.fillRect(270, 190, 50, 40);
+                fCtx.fillStyle = "#ffcc44";
+                fCtx.beginPath();
+                fCtx.arc(105, 220, 20, 0, Math.PI*2);
+                fCtx.arc(295, 220, 20, 0, Math.PI*2);
+                fCtx.fill();
+                fCtx.fillStyle = "#b0b0b0";
+                fCtx.fillRect(140, 140, 120, 40);
+                fCtx.fillStyle = "#f0f0f0";
+                fCtx.fillRect(160, 110, 80, 35);
+                fallbackCanvas.toBlob(blob => {
+                    const objUrl = URL.createObjectURL(blob);
+                    img.src = objUrl;
+                    img.onload = () => {
+                        URL.revokeObjectURL(objUrl);
+                        onImageReady();
+                    };
+                });
+            };
+        }
+        
+        // 初始化加载图片
+        function initCarImage() {
+            img.crossOrigin = "Anonymous";
+            img.onload = onImageReady;
+            img.onerror = handleImageError;
+            img.src = CAR_IMG_URL;
+            // 超时保底
+            setTimeout(() => {
+                if (!isImageLoaded && img.src && !img.complete) {
+                    handleImageError();
+                }
+            }, 5000);
+        }
+        
+        // 监听窗口resize, 重新计算汽车尺寸及边界，并重绘（但canvas分辨率不变，但汽车相对画布大小调整）
+        function handleResize() {
+            if (!isImageLoaded) return;
+            // 汽车大小适应新canvas尺寸 (css宽高变但是canvas实际像素不变，但绘制区域不变)
+            // 但是用户可能缩放浏览器，我们只需要重新计算汽车显示比例，确保视觉舒适
+            updateCarDrawSize();
+            endX = canvas.width - carDrawWidth;
+            endY = canvas.height - carDrawHeight;
+            if (endX < 0) endX = 0;
+            if (endY < 0) endY = 0;
+            drawScene();
+        }
+        
+        // 绑定按钮事件
+        resetBtn.addEventListener('click', () => {
+            if (!isImageLoaded) return;
+            resetAnimation();
+        });
+        
+        pausePlayBtn.addEventListener('click', () => {
+            if (!isImageLoaded) return;
+            togglePause();
+        });
+        
+        // 双击canvas也可以重置
+        canvas.addEventListener('dblclick', () => {
+            if (!isImageLoaded) return;
+            resetAnimation();
+        });
+        
+        // 启动
+        initCarImage();
+        window.addEventListener('resize', () => {
+            setTimeout(handleResize, 120);
+        });
+        
+        // 清理动画
+        window.addEventListener('beforeunload', () => {
+            if (animationId) cancelAnimationFrame(animationId);
+        });
+        
+        console.log("汽车对角线动画已启动 | 从左上方平滑移动到右下角，循环行驶");
+    })();
+</script>
+</body>
+</html>
